@@ -1,0 +1,82 @@
+name: Update site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Download matching JGit p2 repository
+        run: |
+          version=$(grep -m1 '<version>' pom.xml | sed -E 's/.*<version>(.*)<\/version>.*/\1/')
+          base="https://repo.eclipse.org/content/repositories/jgit-snapshots/org/eclipse/jgit/org.eclipse.jgit.repository/$version"
+          snapshot=$(curl -fsSL "$base/maven-metadata.xml" | python3 -c '
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.stdin).getroot()
+          for sv in root.iter("snapshotVersion"):
+              if sv.findtext("extension") == "zip":
+                  print(sv.findtext("value")); break')
+          echo "JGit repository $snapshot"
+          curl -fsSL -o "$RUNNER_TEMP/jgit.zip" "$base/org.eclipse.jgit.repository-$snapshot.zip"
+          mkdir -p "$RUNNER_TEMP/jgit-repo"
+          unzip -q "$RUNNER_TEMP/jgit.zip" -d "$RUNNER_TEMP/jgit-repo"
+          echo "JGIT_SITE=file://$RUNNER_TEMP/jgit-repo" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: >
+          mvn -B clean verify -DskipTests -Ddash.skip
+          -Dtycho.baseline.replace=none
+          "-Djgit-site=$JGIT_SITE"
+
+      - name: Prepare site
+        run: |
+          site=org.eclipse.egit.repository/target/repository
+          touch "$site/.nojekyll"
+          cat > "$site/index.html" <<'HTML'
+          <!doctype html>
+          <title>EGit update site (vogella fork)</title>
+          <h1>EGit update site (vogella fork)</h1>
+          <p>Built from the <code>main</code> branch of
+          <a href="https://github.com/vogella/egit">github.com/vogella/egit</a>:
+          upstream EGit master plus the open Gerrit changes of Lars Vogel.</p>
+          <p>Add this URL in Eclipse under Help &gt; Install New Software:</p>
+          <pre>https://vogella.github.io/egit/</pre>
+          HTML
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: org.eclipse.egit.repository/target/repository
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
