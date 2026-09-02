@@ -1,3 +1,8 @@
+> **Fork with update site.**
+> This is Lars Vogel's fork of [EGit](https://github.com/eclipse-egit/egit).
+> The `main` branch is upstream master plus the open Gerrit changes of Lars Vogel, and every push builds a p2 update site.
+> Install it in Eclipse via Help > Install New Software with the URL `https://vogella.github.io/egit/`.
+
 # Eclipse Git Plugin
 
 _EGit_ is a set of Eclipse plugins for working with Git repositories.
